@@ -12,6 +12,7 @@ import           Data.Vector.Lens
 import           Data.Word
 import           Disassembly
 import           Numeric
+import           Timer
 import           Utils
 
 data Flags a = Flags
@@ -136,7 +137,7 @@ succReg SP = spl
 succReg _  = error "not a register pair!"
 
 runInstr :: Instruction -> CPU ()
-runInstr (DATA _) = error "instruction cannot be data!"
+runInstr (DATA _) = get >>= \cpu -> fail $ "Position " ++ showHex (cpu ^. pc) "" ++ " is data"
 runInstr NOP = pc += 1
 runInstr (LXI reg lsb msb) = do
                                 fromReg reg .= msb
@@ -457,14 +458,14 @@ runInstr (ADI d8) = do pc += 2
                        cpu <- get
                        r <- withFlags (+) All (cpu ^. regA) d8
                        regA .= r
-runInstr (RST 0) = runInstr (CALL 0x00)
-runInstr (RST 1) = runInstr (CALL 0x08)
-runInstr (RST 2) = runInstr (CALL 0x10)
-runInstr (RST 3) = runInstr (CALL 0x18)
-runInstr (RST 4) = runInstr (CALL 0x20)
-runInstr (RST 5) = runInstr (CALL 0x28)
-runInstr (RST 6) = runInstr (CALL 0x30)
-runInstr (RST 7) = runInstr (CALL 0x38)
+runInstr (RST n) = do cpu <- get
+                      let (hi,lo) = decode (cpu ^. pc)
+                          sp = encode (cpu ^. sph) (cpu ^. spl)
+                      memory %= \x -> V.update x ([(sp - 1, hi), (sp - 2, lo)] ^. vector)
+                      let (h,l) = decode . subtract 2 . fromIntegral $ sp
+                      spl .= l
+                      sph .= h
+                      pc .= fromIntegral n * 0x08
 runInstr RZ = do cpu <- get
                  if cpu ^. flags.z == 1
                    then runInstr RET
@@ -606,7 +607,6 @@ runInstr (CM addr) = do cpu <- get
 runInstr (CPI d8) = do cpu <- get
                        _ <- withFlags (-) All (cpu ^. regA) d8
                        pc += 2
-runInstr _ = error "unimplemented!"
 
 loadNext :: CPU (Maybe Instruction)
 loadNext = do
@@ -616,6 +616,8 @@ loadNext = do
 
 runCPU :: CPU () -> Raw -> ROM -> IO (CPUState Word8 Word16)
 runCPU cpu bin rom = execStateT (runReaderT (runReaderT cpu bin) rom) newCPU
+
+runCPU_ = void runCPU
 
 debug :: CPU ()
 debug = do
@@ -637,8 +639,23 @@ debug = do
                               ++ " | D:" ++ show (cpu ^. regD)
                               ++ " | H:" ++ show (cpu ^. regH)
                               ++ " | L:" ++ show (cpu ^. regL)
+                              ++ " | 0x20C0:" ++ show ((cpu ^. memory) V.! 0x20C0)
                               -- ++ " | " ++ show ((cpu ^. memory) V.! 1700) ++ " " ++ show ((cpu ^. memory) V.! 1701) ++ " " ++ show ((cpu ^. memory) V.! 1702)
-      debug
+
+debug' :: CPU ()
+debug' = do
+  t1 <- registerTimer 20000
+  delay 10000
+  t2 <- registerTimer 20000
+  let loop = do
+         cpu <- get
+         when (cpu ^. interrupt) $ do
+             stat1 <- checkTimer t1
+             stat2 <- checkTimer t2
+             when stat1 (resetTimer t1 >> runInstr DI >> runInstr (RST 1))
+             when stat2 (resetTimer t2 >> runInstr DI >> runInstr (RST 2))
+         debug
+  forever loop
 
 withCycle :: Int -> CPU ()
 withCycle c = do
@@ -648,6 +665,7 @@ withCycle c = do
       Nothing  -> return ()
       Just ins -> runInstr ins >> withCycle (c - 1)
 
-runTest = let str = "/Users/clinix/Downloads/invaders/invaders.bin"
-          in do
-               join $ pure (runCPU (withCycle 40000 >> debug)) <*> raw str <*> parse str
+runTest m =
+  let str = "/Users/clinix/Downloads/invaders/invaders.bin"
+  in do
+    join $ pure (runCPU (withCycle 60000 >> m)) <*> raw str <*> parse str
