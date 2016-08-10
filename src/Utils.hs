@@ -9,3 +9,6 @@ encode h l = fromIntegral h `shiftL` 8 .|. fromIntegral l
 decode :: Word16 -> (Word8, Word8)
 decode word = ( fromIntegral $ (word .&. 0xFF00) `shiftR` 8
               , fromIntegral $ word .&. 0x00FF )
+
+mask :: Word8 -> [Word8]
+mask word = map (\x -> word `shiftR` x .&. 0x01) [7,6..0]
