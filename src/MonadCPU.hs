@@ -19,7 +19,8 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as B
 import           Data.Word                   (Word16, Word8)
 import           Disassembler
-import Data.Bits
+import           Data.Bits
+import           Numeric
 import           Utils                       (decode, encode)
 
 type Address = Word16
@@ -154,8 +155,10 @@ eval ins = do
       fromRegPair reg .= decode addr
     STAX reg ->
       writeMem (encode' $ cpu ^. fromRegPair reg) (cpu ^. regA)
+    INX M ->
+      modifyMem (encode' $ cpu ^. regHL) (+1)
     INX reg ->
-      modifyMem (encode' $ cpu ^. fromRegPair reg) (+1)
+      fromRegPair reg %= decode . (+1) . encode'
     INR M -> do
       x <- readMem (encode' $ cpu ^. regHL)
       writeMem (encode' (cpu ^. regHL)) =<< checkZSPAC (+) x 1
@@ -492,12 +495,20 @@ copyROM :: (MonadIO m) => V.Vector Word8 -> VUM.IOVector Word8 -> m ()
 copyROM rom v = liftIO $ forM_ [1 .. V.length rom - 1] $
   \idx -> VUM.write v idx (rom V.! idx)
 
-runCPU :: StateT CPUState IO ()
-runCPU = do
+runCPU :: Bool -> StateT CPUState IO ()
+runCPU debug = do
   ins <- load
-  liftIO $ print (disassembly ins)
+  cpu <- peek
+  when debug $ liftIO . print $
+    showHex (cpu ^. pc) "" ++ " " ++
+    show (disassembly ins) ++ " | " ++
+    showHex (cpu ^. regA) "" ++ " | " ++
+    show (cpu ^. regBC) ++ " | " ++
+    show (cpu ^. regDE) ++ " | " ++
+    show (cpu ^. regHL) ++ " | " ++
+    show (cpu ^. flags.z)
   eval (disassembly ins)
-  runCPU
+  runCPU debug
 
 initCPU :: IO CPUState
 initCPU = do
@@ -509,4 +520,4 @@ initCPU = do
   return $ cpu { _memory = mem }
 
 run :: IO ()
-run = void $ execStateT runCPU =<< initCPU
+run = void $ execStateT (runCPU True) =<< initCPU
