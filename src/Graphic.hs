@@ -5,16 +5,19 @@
 module Graphic where
 
 import           Control.Monad
-import qualified Data.Vector      as V
-import           Data.Word        (Word8)
+import qualified Data.Vector                 as V
+import qualified Data.Vector.Unboxed.Mutable as VUM
+import           Data.Word                   (Word8)
 import           Foreign.Ptr
 import           Foreign.Storable
-import           Linear           (V2 (..), V4 (..))
+import           Linear                      (V2 (..), V4 (..))
 import           SDL
-import           Utils            (mask)
+import           Utils                       (toBin)
 
-initializeDisplay :: IO (Renderer, Texture)
-initializeDisplay = do
+constWindowSize = 256 * 224
+
+initDisplay :: IO (Renderer, Texture)
+initDisplay = do
   initializeAll
   window <- createWindow "Space Invaders" defaultWindow { windowInitialSize = V2 256 224 }
   renderer <- createRenderer window (-1) defaultRenderer
@@ -22,20 +25,37 @@ initializeDisplay = do
   rendererDrawColor renderer $=  V4 0 0 0 255
   return (renderer, texture)
 
-renderFrame :: Renderer -> Texture -> V.Vector Word8 -> IO ()
+renderFrame :: Renderer -> Texture -> VUM.IOVector Word8 -> IO ()
 renderFrame rend text vec = do
   (ptr, _) <- lockTexture text Nothing
-  writeBuffer (castPtr ptr) . expand $ vec
+  writeBuffer (castPtr ptr) vec
   clear rend
   unlockTexture text
   copy rend text Nothing Nothing
   present rend
 
-writeBGRA :: Word8 -> Ptr Word8 -> Int -> IO ()
-writeBGRA bit ptr off = forM_ [0..3] $ \x -> pokeElemOff ptr (off + x) bit
+writePixel :: [Word8] -> Ptr Word8 -> Int -> IO ()
+writePixel (r:g:b:a:[]) ptr off = do
+  pokeElemOff ptr (off + 0) r
+  pokeElemOff ptr (off + 1) g
+  pokeElemOff ptr (off + 2) b
+  pokeElemOff ptr (off + 3) a
+writePixel _ _ _ = fail "color format is not RGBA"
 
-writeBuffer :: Ptr Word8 -> V.Vector Word8 -> IO ()
-writeBuffer ptr vec = forM_ [0,4 .. V.length vec - 1] $ \x -> writeBGRA (vec V.! x) ptr x
+writePixels :: [[Word8]] -> Ptr Word8 -> Int -> IO ()
+writePixels (pixel:pixels) ptr off = do
+  writePixel pixel ptr off
+  writePixels pixels ptr (off + 4)
+writePixels [] _ _ = return ()
 
-expand :: V.Vector Word8 -> V.Vector Word8
-expand = V.concatMap (V.fromList . map (*255) . mask)
+writeBuffer :: Ptr Word8 -> VUM.IOVector Word8 -> IO ()
+writeBuffer ptr vec = do
+  -- we assump the vector is long enough here.
+  forM_ [0,1 .. constWindowSize `div` 8 - 1] $ \x -> do
+    -- one byte represent 8 pixel
+    byte <- VUM.read vec x
+    let pixels = map fromBW . (map (*255)) . toBin $ byte
+    writePixels pixels ptr (x * 32)
+
+fromBW :: Word8 -> [Word8]
+fromBW w = [w,w,w,255]
