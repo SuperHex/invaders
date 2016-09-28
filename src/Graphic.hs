@@ -50,9 +50,9 @@ writePixels [] _ _ = return ()
 
 writeBuffer :: Ptr Word8 -> VUM.IOVector Word8 -> IO ()
 writeBuffer ptr vec = do
-  -- we assump the vector is long enough here.
+  -- we assume the vector is long enough here.
   forM_ [0,1 .. constWindowSize `div` 8 - 1] $ \x -> do
-    -- one byte represent 8 pixel
+    -- one byte represents 8 pixels
     byte <- VUM.read vec x
     let pixels = map fromBW . (map (*255)) . toBin $ byte
     writePixels pixels ptr (x * 32)
