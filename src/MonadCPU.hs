@@ -10,6 +10,9 @@
 module MonadCPU
   ( Address
   , MonadCPU (..)
+  , CPUState (..)
+  , initCPU
+  , runCPU
   ) where
 
 import           Control.Lens
@@ -508,7 +511,6 @@ runCPU debug = do
     show (cpu ^. regHL) ++ " | " ++
     show (cpu ^. flags.z)
   eval (disassembly ins)
-  runCPU debug
 
 initCPU :: IO CPUState
 initCPU = do
@@ -519,5 +521,6 @@ initCPU = do
   cpu <- newCPU
   return $ cpu { _memory = mem }
 
-run :: IO ()
-run = void $ execStateT (runCPU True) =<< initCPU
+run :: Int -> IO ()
+run n = void $ execStateT (replicateM_ n (runCPU False) >> forever (runCPU True))
+  =<< initCPU

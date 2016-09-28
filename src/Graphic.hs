@@ -21,7 +21,7 @@ initDisplay = do
   initializeAll
   window <- createWindow "Space Invaders" defaultWindow { windowInitialSize = V2 256 224 }
   renderer <- createRenderer window (-1) defaultRenderer
-  texture <- createTexture renderer RGB888 TextureAccessStreaming (V2 256 224)
+  texture <- createTexture renderer ARGB8888 TextureAccessStreaming (V2 256 224)
   rendererDrawColor renderer $=  V4 0 0 0 255
   return (renderer, texture)
 
